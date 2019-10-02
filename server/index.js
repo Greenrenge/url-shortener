@@ -1,10 +1,22 @@
-const env = require('./config/env')
+const config = require('./config/env')
 const app = require('./app')
 const http = require('http')
-const fs = require('fs')
+//const fs = require('fs')
 //const https = require('https')
+const mongoose = require('mongoose')
+
+const { MongoMemoryServer } = require('mongodb-memory-server')
+const mongoServer = new MongoMemoryServer()
 
 async function main() {
+    const connectionString = await mongoServer.getConnectionString()
+    //mongoose.connect(config.MONGO_HOST, { useNewUrlParser: true, keepAlive: 1 })
+    mongoose.connect(connectionString, { useNewUrlParser: true, keepAlive: 1 })
+    mongoose.connection.on('error', () => {
+        throw new Error('Unable to connect to Mongo database')
+    })
+
+
     // Certificate
     // const privateKey = fs.readFileSync('privkey.pem', 'utf8');
     // const certificate = fs.readFileSync('cert.pem', 'utf8');
@@ -19,8 +31,8 @@ async function main() {
     //const httpsServer = https.createServer(credentials, app);
 
     const httpServer = http.createServer(app);
-    httpServer.listen(env.server.port, () => {
-        console.log('HTTP Server running on port ' + env.server.port);
+    httpServer.listen(config.server.port, () => {
+        console.log('HTTP Server running on port ' + config.server.port);
     })
 
     // httpsServer.listen(443, () => {
