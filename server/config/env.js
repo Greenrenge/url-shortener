@@ -14,7 +14,6 @@ const envVarsSchema = Joi.object({
 
 }).unknown()
     .required()
-console.log('RUN ON ENV ==> ', JSON.stringify(process.env))
 const { error, value: envVars } = Joi.validate(process.env, envVarsSchema)
 if (error) {
     throw error
