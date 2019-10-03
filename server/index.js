@@ -5,13 +5,13 @@ const http = require('http')
 //const https = require('https')
 const mongoose = require('mongoose')
 
-const { MongoMemoryServer } = require('mongodb-memory-server')
-const mongoServer = new MongoMemoryServer()
+// const { MongoMemoryServer } = require('mongodb-memory-server')
+// const mongoServer = new MongoMemoryServer()
 
 async function main() {
-    const connectionString = await mongoServer.getConnectionString()
+    //const connectionString = await mongoServer.getConnectionString()
     //mongoose.connect(config.MONGO_HOST, { useNewUrlParser: true, keepAlive: 1 })
-    mongoose.connect(connectionString, { useNewUrlParser: true, keepAlive: 1 })
+    mongoose.connect(config.db.host, { useNewUrlParser: true, keepAlive: 1 })
     mongoose.connection.on('error', () => {
         throw new Error('Unable to connect to Mongo database')
     })
