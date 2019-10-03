@@ -10,7 +10,7 @@ const envVarsSchema = Joi.object({
         .default('development'),
     PORT: Joi.number().default(8080),
     URL: Joi.string().required(),
-    MONGO_HOST: Joi.string().required()
+    MONGO_HOST: Joi.string()
 
 }).unknown()
     .required()

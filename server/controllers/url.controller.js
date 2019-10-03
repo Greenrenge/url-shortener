@@ -4,6 +4,7 @@ const base62 = require('base62')
 const config = require('../config/env')
 const PREFIX = config.prefix.endsWith('/') ? config.prefix.split('/').filter((_, i, arr) => i !== arr.length - 1).join('/') : config.prefix
 const isIdValid = id => id
+
 async function getOne(req, res, next) {
     try {
         const id = req.params.id
@@ -19,14 +20,18 @@ async function getOne(req, res, next) {
         next(err)
     }
 }
+
 async function createOne(req, res, next) {
     try {
+
         const { link } = req.body
         let doc = await UrlModel.findOne({ full_link: link })
         if (!doc) {
             const latestId = await IdModel.getIncrementNumber('url_shorten')
             const newUrl = new UrlModel({ _id: base62.encode(latestId), full_link: link })
             doc = await newUrl.save()
+            //destroy cache
+            await req.cacheBreak(doc._id)
         }
 
         return res.json({ shorten_url: `${PREFIX}/${doc._id}` })

@@ -23,7 +23,9 @@
         "helmet": "^3.21.1",
         "http-status": "^1.2.0",
         "joi": "^14.3.1",
-        "lodash": "^4.17.10",
+        "jsum": "^0.1.4",
+        "keyv": "^3.1.0",
+        "lodash": "^4.17.15",
         "method-override": "^3.0.0",
         "mongodb-memory-server": "^5.2.6",
         "mongoose": "^5.7.1",
@@ -38,7 +40,6 @@
     "scripts": {
         "start-react": "react-scripts start",
         "start": "cd server && node index.js",
-        "prod": "cd server && node index.js",
         "build": "react-scripts build",
         "heroku-postbuild": "yarn build",
         "test": "react-scripts test",
