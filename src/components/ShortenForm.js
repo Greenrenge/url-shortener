@@ -3,13 +3,6 @@ import React from 'react'
 import { SaveAlt } from '@material-ui/icons'
 import { createShortUrl } from '../helpers/url-generator'
 
-// const mockApi = (link) => new Promise((resolve, reject) => {
-//     if (!link) {
-//         reject(Error('please input the correct url'))
-//     }
-//     setTimeout(() => resolve('https://tiny/1234'), 3000)
-// })
-
 class ShortenForm extends React.Component {
     state = {
         link: '',
