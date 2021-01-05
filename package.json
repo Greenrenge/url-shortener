@@ -11,7 +11,7 @@
     "dependencies": {
         "@material-ui/core": "^4.4.3",
         "@material-ui/icons": "^4.4.3",
-        "axios": "^0.19.0",
+        "axios": "^0.21.1",
         "base62": "^2.0.1",
         "body-parser": "^1.19.0",
         "compression": "^1.7.4",
