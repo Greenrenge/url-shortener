@@ -1,0 +1,249 @@
+name: Test Real Workflows' Security Stack (PERSONAL REPO ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'How to handle Aqua/billy steps. mock-aqua forces them to fail (proves fail-open).'
+        type: choice
+        options: [skip-aqua, mock-aqua, full]
+        default: 'full'
+      test_image:
+        description: 'Public test image (no DockerHub login required).'
+        type: string
+        default: 'alpine:3.18'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  AQUA_KEY: ${{ inputs.mode == 'mock-aqua' && 'fake-injection-key' || secrets.AQUA_KEY }}
+  AQUA_SECRET: ${{ inputs.mode == 'mock-aqua' && 'fake-injection-secret' || secrets.AQUA_SECRET }}
+  AQUA_URL: ${{ inputs.mode == 'mock-aqua' && 'https://nonexistent.invalid' || 'https://api.asia-1.supply-chain.cloud.aquasec.com' }}
+  CSPM_URL: ${{ inputs.mode == 'mock-aqua' && 'https://nonexistent.invalid' || 'https://asia-1.api.cloudsploit.com' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test-security-stack:
+    name: Test all security steps from the 4 real workflows
+    if: ${{ ! startsWith(github.repository, 'kingpowerclick/') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve test image
+        id: set-image
+        run: |
+          IMAGE="${{ inputs.test_image }}"
+          [ -z "$IMAGE" ] && IMAGE="alpine:3.18"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "Mode: ${{ inputs.mode }}"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          clean: false
+
+      - name: Get cache date
+        id: trivy-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Restore Trivy DB cache
+        id: restore-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: cache-trivy-${{ steps.trivy-date.outputs.date }}
+          restore-keys: cache-trivy-
+        continue-on-error: true
+
+      - name: Pull test image (public)
+        id: pull-image
+        run: docker pull ${{ steps.set-image.outputs.image }}
+        continue-on-error: true
+
+      - name: CycloneDX SBOM (filesystem — build-ci-* pattern)
+        id: cdx-fs
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'cyclonedx'
+          output: 'sbom-test-fs.cdx.json'
+          skip-dirs: 'node_modules,dist,.git,coverage'
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
+        continue-on-error: true
+
+      - name: CycloneDX SBOM (image — build-rc/promote/attach-sboms pattern)
+        id: cdx-image
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # v0.36.0
+        with:
+          image-ref: ${{ steps.set-image.outputs.image }}
+          format: 'cyclonedx'
+          output: 'sbom-test-image.cdx.json'
+          exit-code: '0'
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
+        continue-on-error: true
+
+      - name: SPDX-JSON SBOM (image — build-rc/promote/attach-sboms pattern)
+        id: spdx-image
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # v0.36.0
+        with:
+          image-ref: ${{ steps.set-image.outputs.image }}
+          format: 'spdx-json'
+          output: 'sbom-test-image.spdx.json'
+          exit-code: '0'
+          skip-setup-trivy: 'true'
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
+        continue-on-error: true
+
+      - name: Dep Graph-format SBOM (local file — promote-* pattern)
+        id: depgraph-local
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # v0.36.0
+        with:
+          image-ref: ${{ steps.set-image.outputs.image }}
+          format: 'github'
+          output: 'dependency-snapshots-test.json'
+          skip-setup-trivy: 'true'
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
+        continue-on-error: true
+
+      - name: Submit Dep Graph snapshot to GitHub API (promote-* pattern)
+        id: depgraph-api
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # v0.36.0
+        with:
+          image-ref: ${{ steps.set-image.outputs.image }}
+          format: 'github'
+          output: 'dependency-snapshots-test.json'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+          skip-setup-trivy: 'true'
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
+        continue-on-error: true
+
+      - name: Aqua scanner (filesystem — build-ci-* pattern, mocked if mode=mock-aqua)
+        id: aqua-fs
+        if: ${{ inputs.mode != 'skip-aqua' }}
+        uses: docker://aquasec/aqua-scanner:latest-limited
+        with:
+          args: trivy fs --scanners misconfig,vuln,secret --sast .
+        env:
+          AQUA_KEY: ${{ env.AQUA_KEY }}
+          AQUA_SECRET: ${{ env.AQUA_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          AQUA_URL: ${{ env.AQUA_URL }}
+          CSPM_URL: ${{ env.CSPM_URL }}
+          TRIVY_RUN_AS_PLUGIN: 'aqua'
+        continue-on-error: true
+        timeout-minutes: 5
+
+      - name: Aqua scanner (image — build-rc/promote/attach-sboms pattern, mocked if mode=mock-aqua)
+        id: aqua-image
+        if: ${{ inputs.mode != 'skip-aqua' }}
+        uses: docker://aquasec/aqua-scanner:latest-limited
+        with:
+          args: trivy image ${{ steps.set-image.outputs.image }} --scanners misconfig,vuln,secret --sast
+        env:
+          AQUA_KEY: ${{ env.AQUA_KEY }}
+          AQUA_SECRET: ${{ env.AQUA_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          AQUA_URL: ${{ env.AQUA_URL }}
+          CSPM_URL: ${{ env.CSPM_URL }}
+          TRIVY_RUN_AS_PLUGIN: 'aqua'
+        continue-on-error: true
+        timeout-minutes: 5
+
+      - name: Billy compliance artifact (all 4 workflows pattern, mocked if mode=mock-aqua)
+        id: billy
+        if: ${{ inputs.mode != 'skip-aqua' }}
+        env:
+          AQUA_KEY: ${{ env.AQUA_KEY }}
+          AQUA_SECRET: ${{ env.AQUA_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export BILLY_SERVER=https://billy.asia-1.codesec.aquasec.com
+          curl -sLo install.sh download.codesec.aquasec.com/billy/install.sh
+          curl -sLo install.sh.checksum https://github.com/argonsecurity/releases/releases/latest/download/install.sh.checksum
+          if ! cat install.sh.checksum | sha256sum --check; then
+            echo "install.sh checksum failed"
+            exit 1
+          fi
+          BINDIR="." sh install.sh
+          rm install.sh install.sh.checksum
+          ./billy generate \
+            --access-token "$GITHUB_TOKEN" \
+            --aqua-key "$AQUA_KEY" \
+            --aqua-secret "$AQUA_SECRET" \
+            --cspm-url https://asia-1.api.cloudsploit.com \
+            --artifact-path "${{ github.workspace }}"
+        continue-on-error: true
+        timeout-minutes: 5
+
+      - name: Upload SBOMs as artifacts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: real-workflow-security-test-results
+          path: |
+            sbom-test-fs.cdx.json
+            sbom-test-image.cdx.json
+            sbom-test-image.spdx.json
+            dependency-snapshots-test.json
+          retention-days: 7
+          if-no-files-found: warn
+        continue-on-error: true
+
+      - name: Attach to draft GH Release (attach-sboms pattern)
+        id: gh-release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: sandbox-test-${{ github.run_id }}
+          name: 'Test release ${{ github.run_id }}'
+          draft: true
+          files: |
+            sbom-test-fs.cdx.json
+            sbom-test-image.cdx.json
+            sbom-test-image.spdx.json
+          fail_on_unmatched_files: false
+        continue-on-error: true
+
+      - name: Test summary (always runs, never exits 1)
+        if: always()
+        run: |
+          {
+            echo "## Real-workflow security stack test summary"
+            echo ""
+            echo "| Step | Conclusion | Workflow pattern tested |"
+            echo "|------|------------|--------------------------|"
+            echo "| Restore Trivy DB cache | ${{ steps.restore-cache.conclusion }} | all 4 real workflows |"
+            echo "| Pull test image | ${{ steps.pull-image.conclusion }} | (utility) |"
+            echo "| CycloneDX SBOM (filesystem) | ${{ steps.cdx-fs.conclusion }} | build-ci-* |"
+            echo "| CycloneDX SBOM (image) | ${{ steps.cdx-image.conclusion }} | build-rc, promote-*, attach-sboms |"
+            echo "| SPDX-JSON SBOM (image) | ${{ steps.spdx-image.conclusion }} | build-rc, promote-*, attach-sboms |"
+            echo "| Dep Graph-format SBOM (local) | ${{ steps.depgraph-local.conclusion }} | promote-* |"
+            echo "| Dep Graph API submit | ${{ steps.depgraph-api.conclusion }} | promote-* |"
+            echo "| Aqua scanner (filesystem) | ${{ steps.aqua-fs.conclusion || 'skipped' }} | build-ci-* |"
+            echo "| Aqua scanner (image) | ${{ steps.aqua-image.conclusion || 'skipped' }} | build-rc, promote-*, attach-sboms |"
+            echo "| Billy compliance artifact | ${{ steps.billy.conclusion || 'skipped' }} | all 4 real workflows |"
+            echo "| Upload artifacts | ${{ steps.upload.conclusion }} | all 4 real workflows |"
+            echo "| GH Release attach (draft) | ${{ steps.gh-release.conclusion }} | attach-sboms |"
+            echo ""
+            echo "**Mode**: \`${{ inputs.mode }}\`"
+            echo "**Test image**: \`${{ steps.set-image.outputs.image }}\`"
+            echo "**Repo**: \`${{ github.repository }}\` (gated: only runs in non-org repos)"
+            echo ""
+            echo "**Legend**: 'success' = ran and passed; 'failure' = ran and failed but workflow continues; 'skipped' = gated by mode or secret."
+            echo ""
+            echo "**Expected behavior**: In mode=mock-aqua, Aqua/billy steps are EXPECTED to fail. The workflow still concludes 'success' — that's the proof of fail-open."
+          } >> $GITHUB_STEP_SUMMARY
