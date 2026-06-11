@@ -22,7 +22,7 @@
         "express-validation": "^1.0.2",
         "helmet": "^3.21.1",
         "http-status": "^1.2.0",
-        "joi": "^14.3.1",
+        "joi": "^18.2.1",
         "jsum": "^0.1.4",
         "keyv": "^3.1.0",
         "lodash": "^4.17.21",
